@@ -2,7 +2,11 @@ from typing import Optional, List
 from datetime import datetime
 from sqlalchemy import select, update, and_, or_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
-from .models import Base, User, Project, Ticket, Message, AILog, FAQ, UserContext, SentimentLog
+from .models import (
+    Base, User, Project, Ticket, Message, AILog,
+    FAQ, UserContext, SentimentLog, Attachment,
+    ResponseTemplate, RatingLog, TicketCategory
+)
 
 class Database:
     def __init__(self, session: AsyncSession):
@@ -451,3 +455,241 @@ class Database:
         
         result = await self.session.execute(query)
         return [r for r in result.scalars().all() if r]
+    
+    async def create_attachment(
+        self,
+        message_id: int,
+        file_type: str,
+        file_id: str,
+        file_name: Optional[str] = None,
+        file_size: Optional[int] = None
+    ) -> Attachment:
+        attachment = Attachment(
+            message_id=message_id,
+            file_type=file_type,
+            file_id=file_id,
+            file_name=file_name,
+            file_size=file_size
+        )
+        self.session.add(attachment)
+        await self.session.commit()
+        await self.session.refresh(attachment)
+        return attachment
+    
+    async def get_message_attachments(
+        self,
+        message_id: int
+    ) -> List[Attachment]:
+        result = await self.session.execute(
+            select(Attachment)
+            .where(Attachment.message_id == message_id)
+        )
+        return result.scalars().all()
+    
+    async def create_response_template(
+        self,
+        name: str,
+        content: str,
+        project_id: Optional[int] = None,
+        category: Optional[str] = None,
+        language: str = "ru",
+        created_by: Optional[int] = None
+    ) -> ResponseTemplate:
+        template = ResponseTemplate(
+            project_id=project_id,
+            name=name,
+            content=content,
+            category=category,
+            language=language,
+            created_by=created_by
+        )
+        self.session.add(template)
+        await self.session.commit()
+        await self.session.refresh(template)
+        return template
+    
+    async def get_response_templates(
+        self,
+        project_id: Optional[int] = None,
+        category: Optional[str] = None,
+        language: Optional[str] = None,
+        limit: int = 20
+    ) -> List[ResponseTemplate]:
+        query = select(ResponseTemplate).where(ResponseTemplate.is_active == True)
+        
+        if project_id:
+            query = query.where(
+                or_(ResponseTemplate.project_id == project_id, ResponseTemplate.project_id == None)
+            )
+        
+        if category:
+            query = query.where(ResponseTemplate.category == category)
+        
+        if language:
+            query = query.where(ResponseTemplate.language == language)
+        
+        query = query.order_by(desc(ResponseTemplate.use_count)).limit(limit)
+        
+        result = await self.session.execute(query)
+        return result.scalars().all()
+    
+    async def increment_template_use(self, template_id: int) -> None:
+        result = await self.session.execute(
+            select(ResponseTemplate).where(ResponseTemplate.id == template_id)
+        )
+        template = result.scalar_one_or_none()
+        if template:
+            template.use_count = (template.use_count or 0) + 1
+            await self.session.commit()
+    
+    async def rate_message(
+        self,
+        message_id: int,
+        user_id: int,
+        ticket_id: int,
+        rating: str
+    ) -> RatingLog:
+        log = RatingLog(
+            message_id=message_id,
+            user_id=user_id,
+            ticket_id=ticket_id,
+            rating=rating
+        )
+        self.session.add(log)
+        
+        result = await self.session.execute(
+            select(Message).where(Message.id == message_id)
+        )
+        message = result.scalar_one_or_none()
+        if message:
+            message.rating = rating
+        
+        await self.session.commit()
+        return log
+    
+    async def get_message_rating(self, message_id: int) -> Optional[str]:
+        result = await self.session.execute(
+            select(Message.rating).where(Message.id == message_id)
+        )
+        return result.scalar_one_or_none()
+    
+    async def update_first_response_time(
+        self,
+        ticket_id: int
+    ) -> Optional[Ticket]:
+        ticket = await self.get_ticket(ticket_id)
+        if ticket and not ticket.first_response_at:
+            from datetime import datetime
+            ticket.first_response_at = datetime.utcnow()
+            ticket.response_time_minutes = (
+                ticket.first_response_at - ticket.created_at
+            ).total_seconds() / 60
+            await self.session.commit()
+            await self.session.refresh(ticket)
+        return ticket
+    
+    async def get_average_response_time(
+        self,
+        project_id: Optional[int] = None,
+        hours: int = 24
+    ) -> Optional[float]:
+        from datetime import datetime, timedelta
+        from sqlalchemy import func as sql_func
+        
+        query = select(
+            sql_func.avg(Ticket.response_time_minutes)
+        ).where(
+            Ticket.response_time_minutes != None,
+            Ticket.first_response_at >= datetime.utcnow() - timedelta(hours=hours)
+        )
+        
+        if project_id:
+            query = query.where(Ticket.project_id == project_id)
+        
+        result = await self.session.scalar(query)
+        return result
+    
+    async def create_ticket_category(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        emoji: Optional[str] = None,
+        priority: int = 0
+    ) -> TicketCategory:
+        category = TicketCategory(
+            name=name,
+            description=description,
+            emoji=emoji,
+            priority=priority
+        )
+        self.session.add(category)
+        await self.session.commit()
+        await self.session.refresh(category)
+        return category
+    
+    async def get_ticket_categories(self) -> List[TicketCategory]:
+        result = await self.session.execute(
+            select(TicketCategory)
+            .where(TicketCategory.is_active == True)
+            .order_by(TicketCategory.priority.desc())
+        )
+        return result.scalars().all()
+    
+    async def get_ticket_stats(
+        self,
+        project_id: Optional[int] = None,
+        hours: int = 24
+    ) -> dict:
+        from datetime import datetime, timedelta
+        from sqlalchemy import func as sql_func
+        
+        since = datetime.utcnow() - timedelta(hours=hours)
+        
+        base_query = select(Ticket).where(Ticket.created_at >= since)
+        
+        if project_id:
+            base_query = base_query.where(Ticket.project_id == project_id)
+        
+        total = await self.session.scalar(
+            select(sql_func.count()).select_from(base_query.subquery())
+        )
+        
+        open_count = await self.session.scalar(
+            select(sql_func.count()).select_from(
+                base_query.where(Ticket.status == "open").subquery()
+            )
+        )
+        
+        closed_count = await self.session.scalar(
+            select(sql_func.count()).select_from(
+                base_query.where(Ticket.status == "closed").subquery()
+            )
+        )
+        
+        avg_response_time = await self.get_average_response_time(project_id, hours)
+        
+        positive_ratings = await self.session.scalar(
+            select(sql_func.count(RatingLog.id)).where(
+                RatingLog.created_at >= since,
+                RatingLog.rating == "positive"
+            )
+        )
+        
+        negative_ratings = await self.session.scalar(
+            select(sql_func.count(RatingLog.id)).where(
+                RatingLog.created_at >= since,
+                RatingLog.rating == "negative"
+            )
+        )
+        
+        return {
+            "total_tickets": total or 0,
+            "open_tickets": open_count or 0,
+            "closed_tickets": closed_count or 0,
+            "avg_response_time_minutes": avg_response_time,
+            "positive_ratings": positive_ratings or 0,
+            "negative_ratings": negative_ratings or 0,
+            "satisfaction_rate": (
+                (positive_ratings or 0) / max((positive_ratings or 0) + (negative_ratings or 0), 1) * 100
+            )
+        }

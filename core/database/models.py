@@ -54,6 +54,8 @@ class Ticket(Base):
     category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     language: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     assigned_admin_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    first_response_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    response_time_minutes: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     closed_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     
@@ -69,9 +71,12 @@ class Message(Base):
     sender_type: Mapped[str] = mapped_column(String(50))
     sender_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     content: Mapped[str] = mapped_column(Text)
+    rating: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    has_attachment: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     
     ticket: Mapped["Ticket"] = relationship(back_populates="messages")
+    attachments: Mapped[List["Attachment"]] = relationship(back_populates="message", cascade="all, delete-orphan")
 
 class AILog(Base):
     __tablename__ = "ai_logs"
@@ -126,4 +131,53 @@ class SentimentLog(Base):
     sentiment: Mapped[str] = mapped_column(String(50))
     score: Mapped[float] = mapped_column(Float)
     emotions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+class Attachment(Base):
+    __tablename__ = "attachments"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[int] = mapped_column(ForeignKey("messages.id"), index=True)
+    file_type: Mapped[str] = mapped_column(String(50))
+    file_id: Mapped[str] = mapped_column(String(255))
+    file_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    
+    message: Mapped["Message"] = relationship(back_populates="attachments")
+
+class ResponseTemplate(Base):
+    __tablename__ = "response_templates"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[Optional[int]] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    name: Mapped[str] = mapped_column(String(255))
+    content: Mapped[str] = mapped_column(Text)
+    category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    language: Mapped[str] = mapped_column(String(10), default="ru")
+    use_count: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+class RatingLog(Base):
+    __tablename__ = "rating_logs"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[int] = mapped_column(ForeignKey("messages.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    ticket_id: Mapped[int] = mapped_column(ForeignKey("tickets.id"), index=True)
+    rating: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+class TicketCategory(Base):
+    __tablename__ = "ticket_categories"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    emoji: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
