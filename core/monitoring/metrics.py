@@ -76,7 +76,7 @@ BOT_INFO = Info(
 )
 
 def init_bot_info():
-    from config import BOT_TOKEN
+    from core.config import BOT_TOKEN
     import os
     
     BOT_INFO.info({
