@@ -60,6 +60,18 @@ docker-compose up -d
 - `GET /admin/tickets` - Список тикетов
 - `POST /admin/message` - Отправить сообщение
 - `GET /admin/stats` - Статистика
+- `GET /dashboard` - HTML Dashboard
+
+### Analytics API
+- `GET /api/v1/analytics/ai` - AI метрики
+- `GET /api/v1/analytics/satisfaction` - Удовлетворенность
+- `GET /api/v1/analytics/categories` - По категориям
+- `GET /api/v1/analytics/sentiment` - Сентимент
+- `GET /api/v1/analytics/activity` - Активность по часам
+- `GET /api/v1/analytics/history` - История агрегаций
+- `GET /api/v1/analytics/export/tickets` - Экспорт CSV
+- `GET /api/v1/analytics/dashboard` - Все данные
+- `POST /api/v1/analytics/aggregate` - Триггер агрегации
 
 ## Команды бота
 
@@ -82,6 +94,12 @@ docker-compose up -d
 - `/template_del <id>` - Удалить шаблон
 - `/category_add <название> [emoji] [приоритет]` - Добавить категорию
 - `/security` - Панель безопасности
+- `/stats [hours]` - Быстрая статистика
+- `/report [days]` - Детальный отчет
+- `/cost [days]` - Расчет стоимости OpenAI
+- `/activity` - График активности
+- `/export` - Экспорт данных
+- `/dashboard` - Информация о dashboard
 - `/block <user_id> [часы] [причина]` - Заблокировать пользователя
 - `/unblock <user_id>` - Разблокировать
 - `/blocks` - Список блокировок
@@ -196,6 +214,7 @@ support-bot/
 - **RateLimitLog** - логи rate limiting
 - **SpamFilter** - фильтры спама
 - **SecuritySettings** - настройки безопасности
+- **AnalyticsAggregation** - агрегация метрик по дням
 
 ## Разработка
 
@@ -280,6 +299,44 @@ pytest tests/
 /ratelimit status <id> # Статус лимитов
 /ratelimit reset <id>  # Сброс лимитов
 ```
+
+## Аналитика
+
+### Dashboard
+Визуальный дашборд доступен на `/dashboard`:
+- AI метрики (токены, стоимость, время ответа)
+- Удовлетворенность пользователей
+- Распределение по категориям
+- Сентимент анализ
+- Активность по часам
+- Автообновление каждую минуту
+
+### AI Метрики
+Отслеживание эффективности ИИ:
+- **Токены**: prompt, completion, total
+- **Стоимость**: расчет по тарифам GPT-4
+- **Время ответа**: среднее время генерации
+- **FAQ использование**: процент ответов из базы знаний
+
+### Команды статистики
+```
+/stats [hours]       # Быстрая статистика
+/report [days]       # Детальный отчет
+/cost [days]         # Анализ расходов OpenAI
+/activity            # График активности по часам
+/export              # Инструкция по экспорту
+/dashboard           # Ссылка на web dashboard
+```
+
+### Экспорт данных
+CSV экспорт через API:
+```
+GET /api/v1/analytics/export/tickets?hours=720
+```
+
+Параметры:
+- `project_id` (опционально) - фильтр по проекту
+- `hours` (по умолчанию 720) - период в часах
 
 ### Шаблоны ответов
 Админы могут создавать шаблоны для быстрых ответов:
