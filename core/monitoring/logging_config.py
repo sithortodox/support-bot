@@ -17,10 +17,6 @@ LOGGING_CONFIG = {
         "detailed": {
             "format": "%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s",
             "datefmt": "%Y-%m-%d %H:%M:%S",
-        },
-        "json": {
-            "()": "pythonjson_logger.jsonlogger.JsonFormatter",
-            "format": "%(asctime)s %(name)s %(levelname)s %(message)s"
         }
     },
     "handlers": {
