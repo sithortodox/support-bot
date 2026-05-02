@@ -7,10 +7,13 @@ import logging
 import os
 
 from .analytics import router as analytics_router
+from core.monitoring.middleware import setup_monitoring
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Support Bot API", version="1.0.0")
+
+setup_monitoring(app)
 
 app.include_router(analytics_router)
 

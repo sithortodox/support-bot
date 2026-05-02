@@ -11,9 +11,10 @@ from bot.handlers import (
     security_router, analytics_router
 )
 from bot.middlewares import SecurityMiddleware
+from core.monitoring.logging_config import setup_logging
+from core.monitoring import init_bot_info
 
-logging.basicConfig(level=getattr(logging, LOG_LEVEL))
-logger = logging.getLogger(__name__)
+logger = setup_logging()
 
 dp = Dispatcher()
 
@@ -39,6 +40,9 @@ bot = Bot(
 
 async def on_startup():
     from core.database import Base
+    
+    init_bot_info()
+    logger.info("Starting Support Bot...")
     
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
