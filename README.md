@@ -222,12 +222,78 @@ support-bot/
 # Установка зависимостей
 pip install -r requirements.txt
 
+# Установка dev зависимостей (тесты, линтинг)
+pip install -r requirements-dev.txt
+
 # Запуск локально
 python main.py
 
-# Тестирование
-pytest tests/
+# Запуск тестов
+make test
+# или
+pytest --cov=. --cov-report=html -v
+
+# Быстрые тесты
+make test-fast
+
+# Линтинг
+make lint
+
+# Форматирование кода
+make format
+
+# Очистка кэша
+make clean
+
+# Coverage отчет
+make coverage
 ```
+
+## Тестирование
+
+### Unit тесты
+- **Модели БД** - все 18 моделей протестированы
+- **CRUD операции** - User, Ticket, Message, FAQ, Security, Analytics
+- **OpenAI клиент** - mocked тесты для всех методов
+- **Router** - тестирование маршрутизации и эскалации
+
+### Integration тесты
+- API endpoints
+- Analytics endpoints
+- Dashboard
+- Export функционал
+
+### Coverage
+- Минимальный порог: 50%
+- HTML отчеты в `htmlcov/`
+- Загрузка в Codecov
+
+### CI/CD Pipeline
+GitHub Actions автоматически:
+- ✅ Запускает тесты на Python 3.11, 3.12
+- ✅ Проверяет код Ruff линтером
+- ✅ Форматирует Black
+- ✅ Генерирует coverage отчет
+- ✅ Загружает в Codecov
+- ✅ Сканирует на уязвимости Trivy
+- ✅ Собирает Docker образ
+
+### Makefile команды
+```
+make install       - Установка зависимостей
+make test          - Тесты с coverage
+make test-fast     - Быстрые тесты
+make lint          - Проверка кода
+make format        - Форматирование
+make clean         - Очистка кэша
+make docker-up     - Запуск Docker
+make docker-down   - Остановка Docker
+make migrate       - Миграции БД
+make coverage      - Coverage отчет
+make check         - Все проверки
+```
+
+## Тестирование
 
 ## Примеры использования
 
