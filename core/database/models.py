@@ -24,7 +24,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
     
-    tickets: Mapped[List["Ticket"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    tickets: Mapped[List["Ticket"]] = relationship(back_populates="user", foreign_keys="Ticket.user_id", cascade="all, delete-orphan")
     context: Mapped[Optional["UserContext"]] = relationship(back_populates="user", uselist=False)
 
 class Project(Base):
