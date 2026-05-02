@@ -5,9 +5,9 @@
 set -e
 
 BOT_TOKEN="YOUR_BOT_TOKEN_HERE"
-ADMIN_IDS="198041244"
+ADMIN_IDS="YOUR_TELEGRAM_ID"
 OPENAI_API_KEY="YOUR_OPENAI_API_KEY_HERE"
-DOMAIN="kwork-notification.ru"
+DOMAIN="your-domain.com"
 
 echo "╔════════════════════════════════════╗"
 echo "║  Support Bot Auto-Deploy            ║"
