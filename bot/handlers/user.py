@@ -317,6 +317,7 @@ async def process_message(message: Message, db: Database, state: FSMContext):
                     emotions=str(ai_response.sentiment.emotions)
                 )
     else:
+        escalated = True
         response = "Ваш вопрос принят. Ожидайте ответа оператора."
         await db.update_ticket_status(ticket.id, "human_handled")
         asyncio.create_task(notify_admin_new_ticket(ticket.id, user, message.text))
@@ -391,6 +392,7 @@ async def handle_photo(message: Message, db: Database, state: FSMContext):
             user=user
         )
     else:
+        escalated = True
         response = "Ваш вопрос с вложением принят. Ожидайте ответа оператора."
         await db.update_ticket_status(ticket.id, "human_handled")
         asyncio.create_task(notify_admin_new_ticket(ticket.id, user, message.text))

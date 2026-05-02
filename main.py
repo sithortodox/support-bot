@@ -63,8 +63,6 @@ async def on_shutdown():
     await engine.dispose()
 
 async def main():
-    await on_startup()
-    
     try:
         if WEBHOOK_URL:
             from api.webhook import app as fastapi_app
@@ -82,9 +80,11 @@ async def main():
             server = uvicorn.Server(config)
             await server.serve()
         else:
+            await on_startup()
             await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
-        await on_shutdown()
+        if not WEBHOOK_URL:
+            await on_shutdown()
 
 if __name__ == "__main__":
     asyncio.run(main())
