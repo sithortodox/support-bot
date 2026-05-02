@@ -3,6 +3,8 @@ from aiogram.filters import Command, StateFilter
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state
+import asyncio
+import aiohttp
 
 from ..keyboards import (
     get_main_menu_keyboard,
@@ -17,9 +19,29 @@ from ..states import TicketStates
 from core.database.crud import Database
 from core.ai.openai_client import OpenAIClient
 from core.router.message_router import MessageRouter
-from core.config import ADMIN_IDS, OPENAI_API_KEY, OPENAI_MODEL
+from core.config import ADMIN_IDS, OPENAI_API_KEY, OPENAI_MODEL, BOT_TOKEN
 
 router = Router()
+
+async def notify_admin_new_ticket(ticket_id: int, user, message_text: str):
+    text = (
+        f"🔔 <b>Новый тикет #{ticket_id}</b>\n\n"
+        f"👤 Пользователь: {user.first_name} (@{user.username or 'N/A'})\n"
+        f"📝 Сообщение: {message_text[:200]}\n\n"
+        f"Для ответа: /admin"
+    )
+    
+    for admin_id in ADMIN_IDS:
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                await session.post(url, json={
+                    "chat_id": admin_id,
+                    "text": text,
+                    "parse_mode": "HTML"
+                })
+        except Exception:
+            pass
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, db: Database, state: FSMContext):
@@ -112,6 +134,7 @@ async def cmd_operator(message: Message, db: Database, state: FSMContext):
     if tickets:
         ticket = tickets[0]
         await db.update_ticket_status(ticket.id, "human_handled")
+        asyncio.create_task(notify_admin_new_ticket(ticket.id, user, message.text))
         await message.answer(
             "✅ Ваш запрос передан оператору.\n"
             "Ожидайте ответа."
@@ -296,6 +319,7 @@ async def process_message(message: Message, db: Database, state: FSMContext):
     else:
         response = "Ваш вопрос принят. Ожидайте ответа оператора."
         await db.update_ticket_status(ticket.id, "human_handled")
+        asyncio.create_task(notify_admin_new_ticket(ticket.id, user, message.text))
     
     ai_message = await db.create_message(
         ticket_id=ticket.id,
@@ -369,6 +393,7 @@ async def handle_photo(message: Message, db: Database, state: FSMContext):
     else:
         response = "Ваш вопрос с вложением принят. Ожидайте ответа оператора."
         await db.update_ticket_status(ticket.id, "human_handled")
+        asyncio.create_task(notify_admin_new_ticket(ticket.id, user, message.text))
     
     ai_message = await db.create_message(
         ticket_id=ticket.id,
@@ -424,6 +449,7 @@ async def handle_document(message: Message, db: Database, state: FSMContext):
     
     response = "Ваш документ принят. Ожидайте ответа оператора."
     await db.update_ticket_status(ticket.id, "human_handled")
+    asyncio.create_task(notify_admin_new_ticket(ticket.id, user, message.text))
     
     ai_message = await db.create_message(
         ticket_id=ticket.id,
