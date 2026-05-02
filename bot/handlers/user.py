@@ -220,23 +220,31 @@ async def process_message(message: Message, db: Database, state: FSMContext):
         ai_client = OpenAIClient(api_key=OPENAI_API_KEY, model=OPENAI_MODEL)
         router = MessageRouter(ai_client, db)
         
-        priority = await router.classify_priority(message.text)
-        ticket.priority = priority
-        await db.session.commit()
-        
         response, escalated, ai_response = await router.route(
             message=message.text,
             ticket=ticket,
-            project=project
+            project=project,
+            user=user
         )
         
         if ai_response:
-            await db.create_ai_log(
+            await db.create_ai_log_with_faq(
                 ticket_id=ticket.id,
                 prompt_tokens=ai_response.prompt_tokens,
                 completion_tokens=ai_response.completion_tokens,
-                model=OPENAI_MODEL
+                model=OPENAI_MODEL,
+                used_faq=ai_response.used_faq,
+                faq_id=ai_response.faq_id
             )
+            
+            if ai_response.sentiment:
+                await db.create_sentiment_log(
+                    ticket_id=ticket.id,
+                    message_id=0,
+                    sentiment=ai_response.sentiment.sentiment,
+                    score=ai_response.sentiment.score,
+                    emotions=str(ai_response.sentiment.emotions)
+                )
     else:
         response = "Ваш вопрос принят. Ожидайте ответа оператора."
         await db.update_ticket_status(ticket.id, "human_handled")

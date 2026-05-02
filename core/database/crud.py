@@ -1,8 +1,8 @@
 from typing import Optional, List
 from datetime import datetime
-from sqlalchemy import select, update, and_
+from sqlalchemy import select, update, and_, or_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
-from .models import Base, User, Project, Ticket, Message, AILog
+from .models import Base, User, Project, Ticket, Message, AILog, FAQ, UserContext, SentimentLog
 
 class Database:
     def __init__(self, session: AsyncSession):
@@ -203,3 +203,251 @@ class Database:
             await self.session.commit()
             await self.session.refresh(user)
         return user
+    
+    async def get_or_create_user_context(self, user_id: int) -> UserContext:
+        result = await self.session.execute(
+            select(UserContext).where(UserContext.user_id == user_id)
+        )
+        context = result.scalar_one_or_none()
+        
+        if not context:
+            context = UserContext(user_id=user_id)
+            self.session.add(context)
+            await self.session.commit()
+            await self.session.refresh(context)
+        
+        return context
+    
+    async def update_user_context(
+        self,
+        user_id: int,
+        topic: Optional[str] = None,
+        language: Optional[str] = None,
+        sentiment_score: Optional[float] = None
+    ) -> UserContext:
+        context = await self.get_or_create_user_context(user_id)
+        
+        if topic:
+            existing_topics = context.recent_topics or ""
+            topics_list = existing_topics.split("|") if existing_topics else []
+            topics_list = [t for t in topics_list if t][:9]
+            topics_list.insert(0, topic)
+            context.recent_topics = "|".join(topics_list)
+        
+        if language:
+            context.preferred_language = language
+        
+        if sentiment_score is not None:
+            total = context.total_messages or 0
+            current_avg = context.avg_sentiment or 0.5
+            context.avg_sentiment = (current_avg * total + sentiment_score) / (total + 1)
+        
+        context.total_messages = (context.total_messages or 0) + 1
+        context.last_interaction = datetime.utcnow()
+        
+        await self.session.commit()
+        await self.session.refresh(context)
+        return context
+    
+    async def create_faq(
+        self,
+        question: str,
+        answer: str,
+        project_id: Optional[int] = None,
+        keywords: Optional[str] = None,
+        category: Optional[str] = None,
+        language: str = "ru"
+    ) -> FAQ:
+        faq = FAQ(
+            project_id=project_id,
+            question=question,
+            answer=answer,
+            keywords=keywords,
+            category=category,
+            language=language
+        )
+        self.session.add(faq)
+        await self.session.commit()
+        await self.session.refresh(faq)
+        return faq
+    
+    async def get_faq(self, faq_id: int) -> Optional[FAQ]:
+        result = await self.session.execute(
+            select(FAQ).where(FAQ.id == faq_id)
+        )
+        return result.scalar_one_or_none()
+    
+    async def search_faq(
+        self,
+        query: str,
+        project_id: Optional[int] = None,
+        language: Optional[str] = None,
+        limit: int = 5
+    ) -> List[FAQ]:
+        query_lower = query.lower()
+        
+        sql_query = select(FAQ).where(
+            FAQ.is_active == True,
+            or_(
+                FAQ.question.ilike(f"%{query_lower}%"),
+                FAQ.keywords.ilike(f"%{query_lower}%")
+            )
+        )
+        
+        if project_id:
+            sql_query = sql_query.where(
+                or_(FAQ.project_id == project_id, FAQ.project_id == None)
+            )
+        
+        if language:
+            sql_query = sql_query.where(FAQ.language == language)
+        
+        sql_query = sql_query.order_by(desc(FAQ.priority)).limit(limit)
+        
+        result = await self.session.execute(sql_query)
+        return result.scalars().all()
+    
+    async def get_all_faqs(
+        self,
+        project_id: Optional[int] = None,
+        category: Optional[str] = None,
+        limit: int = 50
+    ) -> List[FAQ]:
+        query = select(FAQ).where(FAQ.is_active == True)
+        
+        if project_id:
+            query = query.where(FAQ.project_id == project_id)
+        
+        if category:
+            query = query.where(FAQ.category == category)
+        
+        query = query.order_by(desc(FAQ.priority), desc(FAQ.use_count)).limit(limit)
+        
+        result = await self.session.execute(query)
+        return result.scalars().all()
+    
+    async def increment_faq_use(self, faq_id: int) -> None:
+        faq = await self.get_faq(faq_id)
+        if faq:
+            faq.use_count = (faq.use_count or 0) + 1
+            await self.session.commit()
+    
+    async def create_sentiment_log(
+        self,
+        ticket_id: int,
+        message_id: int,
+        sentiment: str,
+        score: float,
+        emotions: Optional[str] = None
+    ) -> SentimentLog:
+        log = SentimentLog(
+            ticket_id=ticket_id,
+            message_id=message_id,
+            sentiment=sentiment,
+            score=score,
+            emotions=emotions
+        )
+        self.session.add(log)
+        await self.session.commit()
+        return log
+    
+    async def get_ticket_sentiment_history(self, ticket_id: int) -> List[SentimentLog]:
+        result = await self.session.execute(
+            select(SentimentLog)
+            .where(SentimentLog.ticket_id == ticket_id)
+            .order_by(SentimentLog.created_at.asc())
+        )
+        return result.scalars().all()
+    
+    async def get_user_ticket_history(
+        self,
+        user_id: int,
+        limit: int = 10
+    ) -> List[Ticket]:
+        result = await self.session.execute(
+            select(Ticket)
+            .where(Ticket.user_id == user_id)
+            .order_by(Ticket.created_at.desc())
+            .limit(limit)
+        )
+        return result.scalars().all()
+    
+    async def update_ticket_sentiment(
+        self,
+        ticket_id: int,
+        sentiment: str,
+        score: float
+    ) -> Optional[Ticket]:
+        ticket = await self.get_ticket(ticket_id)
+        if ticket:
+            ticket.sentiment = sentiment
+            ticket.sentiment_score = score
+            await self.session.commit()
+            await self.session.refresh(ticket)
+        return ticket
+    
+    async def update_ticket_language(
+        self,
+        ticket_id: int,
+        language: str
+    ) -> Optional[Ticket]:
+        ticket = await self.get_ticket(ticket_id)
+        if ticket:
+            ticket.language = language
+            await self.session.commit()
+            await self.session.refresh(ticket)
+        return ticket
+    
+    async def update_ticket_category(
+        self,
+        ticket_id: int,
+        category: str
+    ) -> Optional[Ticket]:
+        ticket = await self.get_ticket(ticket_id)
+        if ticket:
+            ticket.category = category
+            await self.session.commit()
+            await self.session.refresh(ticket)
+        return ticket
+    
+    async def create_ai_log_with_faq(
+        self,
+        ticket_id: int,
+        prompt_tokens: int,
+        completion_tokens: int,
+        model: str,
+        used_faq: bool = False,
+        faq_id: Optional[int] = None,
+        response_time: Optional[float] = None
+    ) -> AILog:
+        log = AILog(
+            ticket_id=ticket_id,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            model=model,
+            used_faq=used_faq,
+            faq_id=faq_id,
+            response_time=response_time
+        )
+        self.session.add(log)
+        await self.session.commit()
+        return log
+    
+    async def get_faq_categories(
+        self,
+        project_id: Optional[int] = None
+    ) -> List[str]:
+        query = select(FAQ.category).where(
+            FAQ.is_active == True,
+            FAQ.category != None
+        )
+        
+        if project_id:
+            query = query.where(
+                or_(FAQ.project_id == project_id, FAQ.project_id == None)
+            )
+        
+        query = query.distinct()
+        
+        result = await self.session.execute(query)
+        return [r for r in result.scalars().all() if r]
