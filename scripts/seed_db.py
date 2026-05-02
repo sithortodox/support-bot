@@ -1,4 +1,8 @@
 import asyncio
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from core.database.models import Base, TicketCategory, FAQ, ResponseTemplate
 from core.config import DATABASE_URL
