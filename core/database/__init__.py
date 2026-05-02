@@ -2,7 +2,8 @@ from .models import (
     Base, User, Project, Ticket, Message, AILog,
     FAQ, UserContext, SentimentLog, Attachment,
     ResponseTemplate, RatingLog, TicketCategory,
-    UserBlock, AuditLog, RateLimitLog, SpamFilter, SecuritySettings
+    UserBlock, AuditLog, RateLimitLog, SpamFilter,
+    SecuritySettings, AnalyticsAggregation
 )
 from .crud import Database
 
@@ -11,5 +12,5 @@ __all__ = [
     "FAQ", "UserContext", "SentimentLog", "Attachment",
     "ResponseTemplate", "RatingLog", "TicketCategory",
     "UserBlock", "AuditLog", "RateLimitLog", "SpamFilter",
-    "SecuritySettings", "Database"
+    "SecuritySettings", "AnalyticsAggregation", "Database"
 ]

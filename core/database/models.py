@@ -240,3 +240,37 @@ class SecuritySettings(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
     updated_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+class AnalyticsAggregation(Base):
+    __tablename__ = "analytics_aggregations"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    date: Mapped[datetime] = mapped_column(index=True)
+    project_id: Mapped[Optional[int]] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    
+    total_tickets: Mapped[int] = mapped_column(Integer, default=0)
+    open_tickets: Mapped[int] = mapped_column(Integer, default=0)
+    closed_tickets: Mapped[int] = mapped_column(Integer, default=0)
+    
+    total_messages: Mapped[int] = mapped_column(Integer, default=0)
+    ai_messages: Mapped[int] = mapped_column(Integer, default=0)
+    admin_messages: Mapped[int] = mapped_column(Integer, default=0)
+    
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    estimated_cost: Mapped[float] = mapped_column(Float, default=0.0)
+    
+    avg_response_time: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    
+    positive_ratings: Mapped[int] = mapped_column(Integer, default=0)
+    negative_ratings: Mapped[int] = mapped_column(Integer, default=0)
+    satisfaction_rate: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    
+    faq_used: Mapped[int] = mapped_column(Integer, default=0)
+    
+    users_blocked: Mapped[int] = mapped_column(Integer, default=0)
+    spam_detected: Mapped[int] = mapped_column(Integer, default=0)
+    
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())

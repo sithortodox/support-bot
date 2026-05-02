@@ -6,7 +6,8 @@ from .models import (
     Base, User, Project, Ticket, Message, AILog,
     FAQ, UserContext, SentimentLog, Attachment,
     ResponseTemplate, RatingLog, TicketCategory,
-    UserBlock, AuditLog, RateLimitLog, SpamFilter, SecuritySettings
+    UserBlock, AuditLog, RateLimitLog, SpamFilter,
+    SecuritySettings, AnalyticsAggregation
 )
 
 class Database:
@@ -1011,3 +1012,356 @@ class Database:
         await self.session.commit()
         await self.session.refresh(setting)
         return setting
+    
+    async def get_ai_stats(
+        self,
+        project_id: Optional[int] = None,
+        hours: int = 24
+    ) -> dict:
+        from datetime import datetime, timedelta
+        from sqlalchemy import func as sql_func
+        
+        since = datetime.utcnow() - timedelta(hours=hours)
+        
+        query = select(AILog).where(AILog.created_at >= since)
+        
+        if project_id:
+            query = query.join(Ticket).where(Ticket.project_id == project_id)
+        
+        result = await self.session.execute(query)
+        logs = result.scalars().all()
+        
+        if not logs:
+            return {
+                "total_requests": 0,
+                "total_tokens": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "estimated_cost": 0.0,
+                "avg_response_time": None,
+                "faq_usage_rate": 0.0
+            }
+        
+        total_tokens = sum(log.prompt_tokens + log.completion_tokens for log in logs)
+        prompt_tokens = sum(log.prompt_tokens for log in logs)
+        completion_tokens = sum(log.completion_tokens for log in logs)
+        
+        gpt4_cost = (prompt_tokens / 1000 * 0.03) + (completion_tokens / 1000 * 0.06)
+        gpt35_cost = (total_tokens / 1000 * 0.002)
+        
+        response_times = [log.response_time for log in logs if log.response_time]
+        avg_response_time = sum(response_times) / len(response_times) if response_times else None
+        
+        faq_used = sum(1 for log in logs if log.used_faq)
+        faq_usage_rate = (faq_used / len(logs) * 100) if logs else 0
+        
+        return {
+            "total_requests": len(logs),
+            "total_tokens": total_tokens,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "estimated_cost": gpt4_cost,
+            "avg_response_time": avg_response_time,
+            "faq_usage_rate": faq_usage_rate
+        }
+    
+    async def get_satisfaction_stats(
+        self,
+        project_id: Optional[int] = None,
+        hours: int = 24
+    ) -> dict:
+        from datetime import datetime, timedelta
+        from sqlalchemy import func as sql_func
+        
+        since = datetime.utcnow() - timedelta(hours=hours)
+        
+        query = select(RatingLog).where(RatingLog.created_at >= since)
+        
+        if project_id:
+            query = query.join(Ticket).where(Ticket.project_id == project_id)
+        
+        result = await self.session.execute(query)
+        ratings = result.scalars().all()
+        
+        if not ratings:
+            return {
+                "total_ratings": 0,
+                "positive": 0,
+                "negative": 0,
+                "satisfaction_rate": None
+            }
+        
+        positive = sum(1 for r in ratings if r.rating == "positive")
+        negative = sum(1 for r in ratings if r.rating == "negative")
+        satisfaction_rate = (positive / len(ratings) * 100) if ratings else None
+        
+        return {
+            "total_ratings": len(ratings),
+            "positive": positive,
+            "negative": negative,
+            "satisfaction_rate": satisfaction_rate
+        }
+    
+    async def get_category_distribution(
+        self,
+        project_id: Optional[int] = None,
+        hours: int = 168
+    ) -> dict:
+        from datetime import datetime, timedelta
+        from sqlalchemy import func as sql_func
+        
+        since = datetime.utcnow() - timedelta(hours=hours)
+        
+        query = select(
+            Ticket.category,
+            sql_func.count(Ticket.id).label("count")
+        ).where(
+            Ticket.created_at >= since,
+            Ticket.category != None
+        )
+        
+        if project_id:
+            query = query.where(Ticket.project_id == project_id)
+        
+        query = query.group_by(Ticket.category)
+        
+        result = await self.session.execute(query)
+        
+        distribution = {row.category: row.count for row in result}
+        total = sum(distribution.values())
+        
+        return {
+            "categories": distribution,
+            "total": total
+        }
+    
+    async def get_sentiment_distribution(
+        self,
+        project_id: Optional[int] = None,
+        hours: int = 168
+    ) -> dict:
+        from datetime import datetime, timedelta
+        from sqlalchemy import func as sql_func
+        
+        since = datetime.utcnow() - timedelta(hours=hours)
+        
+        query = select(
+            Ticket.sentiment,
+            sql_func.count(Ticket.id).label("count"),
+            sql_func.avg(Ticket.sentiment_score).label("avg_score")
+        ).where(
+            Ticket.created_at >= since,
+            Ticket.sentiment != None
+        )
+        
+        if project_id:
+            query = query.where(Ticket.project_id == project_id)
+        
+        query = query.group_by(Ticket.sentiment)
+        
+        result = await self.session.execute(query)
+        
+        distribution = {}
+        for row in result:
+            distribution[row.sentiment] = {
+                "count": row.count,
+                "avg_score": float(row.avg_score) if row.avg_score else None
+            }
+        
+        return distribution
+    
+    async def get_hourly_activity(
+        self,
+        project_id: Optional[int] = None,
+        hours: int = 168
+    ) -> List[dict]:
+        from datetime import datetime, timedelta
+        from sqlalchemy import func as sql_func, extract
+        
+        since = datetime.utcnow() - timedelta(hours=hours)
+        
+        query = select(
+            extract("hour", Ticket.created_at).label("hour"),
+            sql_func.count(Ticket.id).label("count")
+        ).where(
+            Ticket.created_at >= since
+        )
+        
+        if project_id:
+            query = query.where(Ticket.project_id == project_id)
+        
+        query = query.group_by(extract("hour", Ticket.created_at))
+        query = query.order_by(extract("hour", Ticket.created_at))
+        
+        result = await self.session.execute(query)
+        
+        return [{"hour": int(row.hour), "count": row.count} for row in result]
+    
+    async def create_or_update_aggregation(
+        self,
+        date: datetime,
+        project_id: Optional[int] = None
+    ) -> AnalyticsAggregation:
+        from sqlalchemy import func as sql_func
+        
+        date_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
+        date_end = date_start + timedelta(days=1)
+        
+        result = await self.session.execute(
+            select(AnalyticsAggregation).where(
+                AnalyticsAggregation.date == date_start,
+                AnalyticsAggregation.project_id == project_id
+            )
+        )
+        agg = result.scalar_one_or_none()
+        
+        if not agg:
+            agg = AnalyticsAggregation(
+                date=date_start,
+                project_id=project_id
+            )
+            self.session.add(agg)
+        
+        ticket_query = select(Ticket).where(
+            Ticket.created_at >= date_start,
+            Ticket.created_at < date_end
+        )
+        if project_id:
+            ticket_query = ticket_query.where(Ticket.project_id == project_id)
+        
+        tickets_result = await self.session.execute(ticket_query)
+        tickets = tickets_result.scalars().all()
+        
+        agg.total_tickets = len(tickets)
+        agg.open_tickets = sum(1 for t in tickets if t.status == "open")
+        agg.closed_tickets = sum(1 for t in tickets if t.status == "closed")
+        
+        message_query = select(Message).where(
+            Message.created_at >= date_start,
+            Message.created_at < date_end
+        )
+        if project_id:
+            message_query = message_query.join(Ticket).where(Ticket.project_id == project_id)
+        
+        messages_result = await self.session.execute(message_query)
+        messages = messages_result.scalars().all()
+        
+        agg.total_messages = len(messages)
+        agg.ai_messages = sum(1 for m in messages if m.sender_type == "ai")
+        agg.admin_messages = sum(1 for m in messages if m.sender_type == "admin")
+        
+        ai_log_query = select(AILog).where(
+            AILog.created_at >= date_start,
+            AILog.created_at < date_end
+        )
+        if project_id:
+            ai_log_query = ai_log_query.join(Ticket).where(Ticket.project_id == project_id)
+        
+        ai_logs_result = await self.session.execute(ai_log_query)
+        ai_logs = ai_logs_result.scalars().all()
+        
+        agg.total_tokens = sum(log.prompt_tokens + log.completion_tokens for log in ai_logs)
+        agg.prompt_tokens = sum(log.prompt_tokens for log in ai_logs)
+        agg.completion_tokens = sum(log.completion_tokens for log in ai_logs)
+        
+        agg.estimated_cost = (agg.prompt_tokens / 1000 * 0.03) + (agg.completion_tokens / 1000 * 0.06)
+        
+        response_times = [t.response_time_minutes for t in tickets if t.response_time_minutes]
+        agg.avg_response_time = sum(response_times) / len(response_times) if response_times else None
+        
+        rating_query = select(RatingLog).where(
+            RatingLog.created_at >= date_start,
+            RatingLog.created_at < date_end
+        )
+        if project_id:
+            rating_query = rating_query.join(Ticket).where(Ticket.project_id == project_id)
+        
+        ratings_result = await self.session.execute(rating_query)
+        ratings = ratings_result.scalars().all()
+        
+        agg.positive_ratings = sum(1 for r in ratings if r.rating == "positive")
+        agg.negative_ratings = sum(1 for r in ratings if r.rating == "negative")
+        
+        if ratings:
+            agg.satisfaction_rate = (agg.positive_ratings / len(ratings)) * 100
+        
+        agg.faq_used = sum(1 for log in ai_logs if log.used_faq)
+        
+        block_query = select(UserBlock).where(
+            UserBlock.created_at >= date_start,
+            UserBlock.created_at < date_end
+        )
+        blocks_result = await self.session.execute(block_query)
+        agg.users_blocked = len(blocks_result.scalars().all())
+        
+        await self.session.commit()
+        await self.session.refresh(agg)
+        return agg
+    
+    async def get_aggregation_history(
+        self,
+        project_id: Optional[int] = None,
+        days: int = 30
+    ) -> List[AnalyticsAggregation]:
+        from datetime import datetime, timedelta
+        
+        since = datetime.utcnow() - timedelta(days=days)
+        
+        query = select(AnalyticsAggregation).where(
+            AnalyticsAggregation.date >= since
+        ).order_by(AnalyticsAggregation.date.asc())
+        
+        if project_id:
+            query = query.where(AnalyticsAggregation.project_id == project_id)
+        
+        result = await self.session.execute(query)
+        return result.scalars().all()
+    
+    async def export_tickets_csv(
+        self,
+        project_id: Optional[int] = None,
+        hours: int = 720
+    ) -> str:
+        from datetime import datetime, timedelta
+        import csv
+        import io
+        
+        since = datetime.utcnow() - timedelta(hours=hours)
+        
+        query = select(Ticket).where(Ticket.created_at >= since)
+        
+        if project_id:
+            query = query.where(Ticket.project_id == project_id)
+        
+        query = query.order_by(Ticket.created_at.desc()).limit(1000)
+        
+        result = await self.session.execute(query)
+        tickets = result.scalars().all()
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        writer.writerow([
+            "ID", "User ID", "Status", "Priority", "Category",
+            "Sentiment", "Sentiment Score", "Language",
+            "Response Time (min)", "Created At", "Closed At"
+        ])
+        
+        for ticket in tickets:
+            writer.writerow([
+                ticket.id,
+                ticket.user.telegram_id if ticket.user else None,
+                ticket.status,
+                ticket.priority,
+                ticket.category,
+                ticket.sentiment,
+                ticket.sentiment_score,
+                ticket.language,
+                ticket.response_time_minutes,
+                ticket.created_at.isoformat(),
+                ticket.closed_at.isoformat() if ticket.closed_at else None
+            ])
+        
+        return output.getvalue()
+
+from datetime import timedelta

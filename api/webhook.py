@@ -1,12 +1,26 @@
 from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
+import os
+
+from .analytics import router as analytics_router
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Support Bot API", version="1.0.0")
+
+app.include_router(analytics_router)
+
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+@app.get("/dashboard")
+async def dashboard():
+    return FileResponse(os.path.join(static_dir, "dashboard.html"))
 
 class MessageCreate(BaseModel):
     ticket_id: int
