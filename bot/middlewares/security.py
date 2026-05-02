@@ -29,14 +29,15 @@ class SecurityMiddleware(BaseMiddleware):
         if not user:
             return await handler(event, data)
         
-        if user.id in ADMIN_IDS:
-            data["is_admin"] = True
-            return await handler(event, data)
-        
         async with self.session_pool() as session:
             db = Database(session)
             data["db"] = db
             data["session"] = session
+            
+            if user.id in ADMIN_IDS:
+                data["is_admin"] = True
+                return await handler(event, data)
+            
             data["is_admin"] = False
             
             is_blocked, reason = await db.is_user_blocked(user.id)
