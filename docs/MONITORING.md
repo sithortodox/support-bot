@@ -149,7 +149,7 @@ Add to `docker-compose.yml`:
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=CHANGE_ME_IN_PRODUCTION  # Default: admin
 ```
 
 ## Best Practices

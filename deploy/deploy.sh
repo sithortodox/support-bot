@@ -63,10 +63,10 @@ WEBHOOK_URL=https://your-domain.com/webhook
 WEBHOOK_SECRET=change_this_to_random_string
 OPENAI_API_KEY=sk-your-openai-key
 OPENAI_MODEL=gpt-4
-DATABASE_URL=postgresql://postgres:postgres@postgres:5432/support_bot
+DATABASE_URL=postgresql://postgres:CHANGE_ME_STRONG_PASSWORD@postgres:5432/support_bot
 REDIS_URL=redis://redis:6379/0
 ADMIN_IDS=YOUR_TELEGRAM_ID
-POSTGRES_PASSWORD=postgres
+POSTGRES_PASSWORD=CHANGE_ME_STRONG_PASSWORD
 LOG_LEVEL=INFO
 ENVEOF
 

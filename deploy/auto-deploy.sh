@@ -62,10 +62,10 @@ WEBHOOK_URL=https://$DOMAIN/webhook
 WEBHOOK_SECRET=$(openssl rand -hex 32)
 OPENAI_API_KEY=$OPENAI_API_KEY
 OPENAI_MODEL=gpt-4o
-DATABASE_URL=postgresql://postgres:support123@postgres:5432/support_bot
+DATABASE_URL=postgresql://postgres:\${POSTGRES_PASSWORD}@postgres:5432/support_bot
 REDIS_URL=redis://redis:6379/0
 ADMIN_IDS=$ADMIN_IDS
-POSTGRES_PASSWORD=support123
+POSTGRES_PASSWORD=\${POSTGRES_PASSWORD:-change_me_in_production}
 LOG_LEVEL=INFO
 EOF
 
