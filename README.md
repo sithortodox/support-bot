@@ -55,7 +55,10 @@ docker-compose up -d
 ## API Endpoints
 
 - `GET /` - Статус сервиса
-- `GET /health` - Health check
+- `GET /health` - Health check (БД, Redis, OpenAI)
+- `GET /ready` - Kubernetes readiness probe
+- `GET /live` - Kubernetes liveness probe
+- `GET /metrics` - Prometheus metrics
 - `POST /webhook/{token}` - Telegram webhook
 - `GET /admin/tickets` - Список тикетов
 - `POST /admin/message` - Отправить сообщение
@@ -425,6 +428,63 @@ GET /api/v1/analytics/export/tickets?hours=720
 - name - название категории
 - emoji - эмодзи для отображения
 - priority - приоритет (влияет на порядок отображения)
+
+## Мониторинг
+
+### Prometheus Metrics
+Доступны на `GET /metrics`:
+- **Bot metrics** - сообщения, тикеты, рейтинги
+- **AI metrics** - запросы, токены, стоимость, время ответа
+- **HTTP metrics** - запросы, время ответа
+- **Database metrics** - подключения
+
+### Health Checks
+```bash
+# Полная проверка
+curl http://localhost:8000/health
+
+# Kubernetes probes
+curl http://localhost:8000/ready  # readiness
+curl http://localhost:8000/live   # liveness
+```
+
+### Логирование
+- `logs/support_bot.log` - все логи
+- `logs/errors.log` - только ошибки
+- `logs/ai.log` - AI логи
+
+Ротация: 10MB, 5 backups
+
+### Миграции БД (Alembic)
+```bash
+# Применить миграции
+alembic upgrade head
+
+# Создать миграцию
+alembic revision --autogenerate -m "description"
+
+# Откатить
+alembic downgrade -1
+```
+
+### Alerting
+Пороги алертов:
+- Response time > 5s
+- Error rate > 10%
+- Open tickets > 100
+- AI cost > $10/day
+- Negative sentiment < 0.3
+
+### Grafana Dashboard
+Примеры панелей:
+- Request rate
+- Error rate
+- Response time (p95)
+- Open tickets
+- AI cost
+- User satisfaction
+
+Подробная документация: [docs/MONITORING.md](docs/MONITORING.md)
 
 ## Лицензия
 
