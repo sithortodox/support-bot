@@ -5,6 +5,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state
 import asyncio
 import aiohttp
+import logging
 
 from ..keyboards import (
     get_main_menu_keyboard,
@@ -22,6 +23,7 @@ from core.router.message_router import MessageRouter
 from core.config import ADMIN_IDS, OPENAI_API_KEY, OPENAI_MODEL, BOT_TOKEN
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 async def notify_admin_new_ticket(ticket_id: int, user, message_text: str):
     text = (
@@ -31,17 +33,23 @@ async def notify_admin_new_ticket(ticket_id: int, user, message_text: str):
         f"Для ответа: /admin"
     )
     
+    logger.info(f"Sending notification for ticket #{ticket_id} to admins: {ADMIN_IDS}")
+    
     for admin_id in ADMIN_IDS:
         try:
             async with aiohttp.ClientSession() as session:
                 url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-                await session.post(url, json={
+                async with session.post(url, json={
                     "chat_id": admin_id,
                     "text": text,
                     "parse_mode": "HTML"
-                })
-        except Exception:
-            pass
+                }) as response:
+                    if response.status == 200:
+                        logger.info(f"Notification sent to admin {admin_id}")
+                    else:
+                        logger.error(f"Failed to send notification: {response.status} - {await response.text()}")
+        except Exception as e:
+            logger.error(f"Error sending notification to {admin_id}: {e}")
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, db: Database, state: FSMContext):
