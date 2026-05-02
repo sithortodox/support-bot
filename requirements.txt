@@ -22,7 +22,7 @@ idna==3.6
 kombu==5.3.4
 marshmallow==3.20.1
 multidict==6.0.4
-openai==1.8.0
+openai==1.30.0
 packaging==23.2
 prompt-toolkit==3.0.43
 psycopg2-binary==2.9.9
