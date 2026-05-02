@@ -6,8 +6,8 @@ from aiogram.client.default import DefaultBotProperties
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from config import BOT_TOKEN, DATABASE_URL, WEBHOOK_URL, WEBHOOK_SECRET, LOG_LEVEL
-from bot.handlers import user_router, admin_router, faq_router
-from bot.middlewares import DatabaseMiddleware
+from bot.handlers import user_router, admin_router, faq_router, security_router
+from bot.middlewares import SecurityMiddleware
 
 logging.basicConfig(level=getattr(logging, LOG_LEVEL))
 logger = logging.getLogger(__name__)
@@ -17,6 +17,7 @@ dp = Dispatcher()
 dp.include_router(user_router)
 dp.include_router(admin_router)
 dp.include_router(faq_router)
+dp.include_router(security_router)
 
 engine = create_async_engine(
     DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://"),
@@ -25,7 +26,7 @@ engine = create_async_engine(
 
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
-dp.update.middleware(DatabaseMiddleware(async_session))
+dp.update.middleware(SecurityMiddleware(async_session))
 
 bot = Bot(
     token=BOT_TOKEN,

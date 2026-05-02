@@ -181,3 +181,62 @@ class TicketCategory(Base):
     priority: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+class UserBlock(Base):
+    __tablename__ = "user_blocks"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    blocked_by: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    block_type: Mapped[str] = mapped_column(String(50), default="temporary")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    unblocked_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    unblocked_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    admin_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    action: Mapped[str] = mapped_column(String(100), index=True)
+    target_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    target_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+class RateLimitLog(Base):
+    __tablename__ = "rate_limit_logs"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    action_type: Mapped[str] = mapped_column(String(50))
+    attempt_count: Mapped[int] = mapped_column(Integer, default=1)
+    first_attempt: Mapped[datetime] = mapped_column(server_default=func.now())
+    last_attempt: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    blocked_until: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+
+class SpamFilter(Base):
+    __tablename__ = "spam_filters"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pattern: Mapped[str] = mapped_column(String(255), unique=True)
+    filter_type: Mapped[str] = mapped_column(String(50), default="keyword")
+    action: Mapped[str] = mapped_column(String(50), default="warn")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+class SecuritySettings(Base):
+    __tablename__ = "security_settings"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    setting_key: Mapped[str] = mapped_column(String(100), unique=True)
+    setting_value: Mapped[str] = mapped_column(Text)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+    updated_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)

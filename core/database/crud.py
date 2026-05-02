@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .models import (
     Base, User, Project, Ticket, Message, AILog,
     FAQ, UserContext, SentimentLog, Attachment,
-    ResponseTemplate, RatingLog, TicketCategory
+    ResponseTemplate, RatingLog, TicketCategory,
+    UserBlock, AuditLog, RateLimitLog, SpamFilter, SecuritySettings
 )
 
 class Database:
@@ -693,3 +694,320 @@ class Database:
                 (positive_ratings or 0) / max((positive_ratings or 0) + (negative_ratings or 0), 1) * 100
             )
         }
+    
+    async def block_user(
+        self,
+        user_id: int,
+        blocked_by: int,
+        reason: Optional[str] = None,
+        block_type: str = "temporary",
+        duration_hours: Optional[int] = None
+    ) -> UserBlock:
+        from datetime import datetime, timedelta
+        
+        expires_at = None
+        if duration_hours:
+            expires_at = datetime.utcnow() + timedelta(hours=duration_hours)
+        
+        block = UserBlock(
+            user_id=user_id,
+            blocked_by=blocked_by,
+            reason=reason,
+            block_type=block_type,
+            expires_at=expires_at
+        )
+        self.session.add(block)
+        
+        user = await self.get_user_by_telegram_id(user_id)
+        if user:
+            user.is_active = False
+        
+        await self.session.commit()
+        await self.session.refresh(block)
+        return block
+    
+    async def unblock_user(
+        self,
+        user_id: int,
+        unblocked_by: int
+    ) -> Optional[UserBlock]:
+        result = await self.session.execute(
+            select(UserBlock).where(
+                UserBlock.user_id == user_id,
+                UserBlock.is_active == True
+            ).order_by(UserBlock.created_at.desc())
+        )
+        block = result.scalar_one_or_none()
+        
+        if block:
+            block.is_active = False
+            block.unblocked_at = datetime.utcnow()
+            block.unblocked_by = unblocked_by
+            
+            user = await self.get_user_by_telegram_id(user_id)
+            if user:
+                user.is_active = True
+            
+            await self.session.commit()
+            await self.session.refresh(block)
+        
+        return block
+    
+    async def is_user_blocked(self, user_id: int) -> tuple[bool, Optional[str]]:
+        from datetime import datetime
+        
+        result = await self.session.execute(
+            select(UserBlock).where(
+                UserBlock.user_id == user_id,
+                UserBlock.is_active == True,
+                or_(
+                    UserBlock.expires_at == None,
+                    UserBlock.expires_at > datetime.utcnow()
+                )
+            ).order_by(UserBlock.created_at.desc())
+        )
+        block = result.scalar_one_or_none()
+        
+        if block:
+            return True, block.reason
+        return False, None
+    
+    async def get_user_blocks(
+        self,
+        user_id: Optional[int] = None,
+        active_only: bool = True,
+        limit: int = 50
+    ) -> List[UserBlock]:
+        query = select(UserBlock)
+        
+        if user_id:
+            query = query.where(UserBlock.user_id == user_id)
+        
+        if active_only:
+            query = query.where(UserBlock.is_active == True)
+        
+        query = query.order_by(UserBlock.created_at.desc()).limit(limit)
+        
+        result = await self.session.execute(query)
+        return result.scalars().all()
+    
+    async def create_audit_log(
+        self,
+        admin_id: int,
+        action: str,
+        target_type: Optional[str] = None,
+        target_id: Optional[int] = None,
+        details: Optional[str] = None,
+        ip_address: Optional[str] = None
+    ) -> AuditLog:
+        log = AuditLog(
+            admin_id=admin_id,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            details=details,
+            ip_address=ip_address
+        )
+        self.session.add(log)
+        await self.session.commit()
+        return log
+    
+    async def get_audit_logs(
+        self,
+        admin_id: Optional[int] = None,
+        action: Optional[str] = None,
+        hours: int = 24,
+        limit: int = 100
+    ) -> List[AuditLog]:
+        from datetime import datetime, timedelta
+        
+        since = datetime.utcnow() - timedelta(hours=hours)
+        
+        query = select(AuditLog).where(AuditLog.created_at >= since)
+        
+        if admin_id:
+            query = query.where(AuditLog.admin_id == admin_id)
+        
+        if action:
+            query = query.where(AuditLog.action == action)
+        
+        query = query.order_by(AuditLog.created_at.desc()).limit(limit)
+        
+        result = await self.session.execute(query)
+        return result.scalars().all()
+    
+    async def check_rate_limit(
+        self,
+        user_id: int,
+        action_type: str,
+        max_attempts: int = 10,
+        window_minutes: int = 60
+    ) -> tuple[bool, int]:
+        from datetime import datetime, timedelta
+        
+        window_start = datetime.utcnow() - timedelta(minutes=window_minutes)
+        
+        result = await self.session.execute(
+            select(RateLimitLog).where(
+                RateLimitLog.user_id == user_id,
+                RateLimitLog.action_type == action_type,
+                RateLimitLog.first_attempt >= window_start
+            )
+        )
+        log = result.scalar_one_or_none()
+        
+        if not log:
+            log = RateLimitLog(
+                user_id=user_id,
+                action_type=action_type,
+                attempt_count=1
+            )
+            self.session.add(log)
+            await self.session.commit()
+            return True, max_attempts - 1
+        
+        if log.attempt_count >= max_attempts:
+            log.is_blocked = True
+            log.blocked_until = datetime.utcnow() + timedelta(minutes=window_minutes)
+            await self.session.commit()
+            return False, 0
+        
+        log.attempt_count += 1
+        await self.session.commit()
+        return True, max_attempts - log.attempt_count
+    
+    async def get_rate_limit_status(
+        self,
+        user_id: int,
+        action_type: str
+    ) -> Optional[RateLimitLog]:
+        result = await self.session.execute(
+            select(RateLimitLog).where(
+                RateLimitLog.user_id == user_id,
+                RateLimitLog.action_type == action_type
+            ).order_by(RateLimitLog.last_attempt.desc())
+        )
+        return result.scalar_one_or_none()
+    
+    async def reset_rate_limit(
+        self,
+        user_id: int,
+        action_type: str
+    ) -> None:
+        result = await self.session.execute(
+            select(RateLimitLog).where(
+                RateLimitLog.user_id == user_id,
+                RateLimitLog.action_type == action_type
+            )
+        )
+        logs = result.scalars().all()
+        
+        for log in logs:
+            log.is_blocked = False
+            log.blocked_until = None
+            log.attempt_count = 0
+        
+        await self.session.commit()
+    
+    async def create_spam_filter(
+        self,
+        pattern: str,
+        filter_type: str = "keyword",
+        action: str = "warn",
+        created_by: Optional[int] = None
+    ) -> SpamFilter:
+        spam_filter = SpamFilter(
+            pattern=pattern,
+            filter_type=filter_type,
+            action=action,
+            created_by=created_by
+        )
+        self.session.add(spam_filter)
+        await self.session.commit()
+        await self.session.refresh(spam_filter)
+        return spam_filter
+    
+    async def check_spam(self, message: str) -> Optional[SpamFilter]:
+        message_lower = message.lower()
+        
+        result = await self.session.execute(
+            select(SpamFilter).where(
+                SpamFilter.is_active == True,
+                SpamFilter.filter_type == "keyword"
+            )
+        )
+        filters = result.scalars().all()
+        
+        for spam_filter in filters:
+            if spam_filter.pattern.lower() in message_lower:
+                return spam_filter
+        
+        return None
+    
+    async def get_spam_filters(
+        self,
+        filter_type: Optional[str] = None,
+        limit: int = 50
+    ) -> List[SpamFilter]:
+        query = select(SpamFilter).where(SpamFilter.is_active == True)
+        
+        if filter_type:
+            query = query.where(SpamFilter.filter_type == filter_type)
+        
+        query = query.order_by(SpamFilter.created_at.desc()).limit(limit)
+        
+        result = await self.session.execute(query)
+        return result.scalars().all()
+    
+    async def delete_spam_filter(self, filter_id: int) -> bool:
+        result = await self.session.execute(
+            select(SpamFilter).where(SpamFilter.id == filter_id)
+        )
+        spam_filter = result.scalar_one_or_none()
+        
+        if spam_filter:
+            spam_filter.is_active = False
+            await self.session.commit()
+            return True
+        return False
+    
+    async def get_security_setting(
+        self,
+        key: str,
+        default: str = ""
+    ) -> str:
+        result = await self.session.execute(
+            select(SecuritySettings).where(SecuritySettings.setting_key == key)
+        )
+        setting = result.scalar_one_or_none()
+        return setting.setting_value if setting else default
+    
+    async def set_security_setting(
+        self,
+        key: str,
+        value: str,
+        updated_by: Optional[int] = None,
+        description: Optional[str] = None
+    ) -> SecuritySettings:
+        result = await self.session.execute(
+            select(SecuritySettings).where(SecuritySettings.setting_key == key)
+        )
+        setting = result.scalar_one_or_none()
+        
+        if setting:
+            setting.setting_value = value
+            setting.updated_by = updated_by
+            if description:
+                setting.description = description
+        else:
+            setting = SecuritySettings(
+                setting_key=key,
+                setting_value=value,
+                description=description,
+                updated_by=updated_by
+            )
+            self.session.add(setting)
+        
+        await self.session.commit()
+        await self.session.refresh(setting)
+        return setting
