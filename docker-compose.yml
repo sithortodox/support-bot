@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: support-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - support-network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: support-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: support_bot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - support-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: support-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - support-network
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: support-celery
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: celery -A core.tasks worker --loglevel=info
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - support-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  support-network:
+    driver: bridge
